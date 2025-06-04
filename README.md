@@ -31,3 +31,14 @@ This lets you distribute a standalone executable that does not require PowerShel
 
 ## Warning
 This tool modifies display positions via the Windows API. Incorrect settings may shift or hide your monitors. Keep the Windows display settings panel handy in case you need to revert your layout.
+=======
+## Troubleshooting
+
+If the monitors do not align as expected or you want to revert the changes, you can restore your display layout in two ways:
+
+1. **Use Windows Display Settings**
+   - Right-click your desktop and choose *Display settings*.
+   - Drag the monitor icons to their original positions and click **Apply**.
+
+2. **Apply a Saved Configuration**
+   - If you previously saved your display arrangement using Windows or another tool, apply that file to return to your preferred layout.
