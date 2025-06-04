@@ -1,3 +1,5 @@
+# Easy Screen Aligner - MIT License
+# See the LICENSE file in this repository for the complete license text.
 # --- Part 1: Setup calibration overlay on each monitor (transparent background) ---
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
