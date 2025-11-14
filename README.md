@@ -1,3 +1,9 @@
+## ----- BUILT FOR THE FUN OF BUILDING      -----
+## ----- KEEP YOUR EXPECTATIONS LOW         ----- 
+## ----- ALL CODE AND PROSE IS AI GENERATED -----
+## ----- USE WITH CAUTION !!!               -----
+##
+
 # Easy Screen Aligner
 
 Vibe Coded with Open AI's o3-mini-high. The script runs in PowerShell on Windows 11 and has not been tested elsewhere. A compiled version is provided as `EasyScreenAligner.exe`.
