@@ -2,7 +2,7 @@
 
 Easy Screen Aligner is a tiny helper script for Windows that keeps multiple monitors perfectly aligned. When monitors sit at slightly different heights the mouse can snag at the screen borders. This tool draws a bold red line across every screen so you can visually match the borders and then updates the display configuration automatically.
 
-The script was vibe-coded with OpenAI's `o3-mini-high` model. It runs in PowerShell on Windows 11 (PowerShell 5.1 or later) and has not been tested on other platforms. A pre-built `EasyScreenAligner.exe` compiled with [ps2exe](https://github.com/MScholtes/PS2EXE) is included for convenience.
+The script was initially vibe-coded with OpenAI's `o3-mini-high` model then later OpenAI's Codex model added the vertical alignment feature. It runs in PowerShell on Windows 11 (PowerShell 5.1 or later) and has not been tested on other platforms. A pre-built `EasyScreenAligner.exe` compiled with [ps2exe](https://github.com/MScholtes/PS2EXE) is included for convenience.
 
 > **Heads up:** The script tweaks your monitor layout through the Windows API. Be sure you understand how to revert the changes (see [Troubleshooting](#troubleshooting)) before experimenting.
 
