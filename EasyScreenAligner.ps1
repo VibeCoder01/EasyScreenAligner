@@ -5,7 +5,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # Show calibration instructions popup at launch.
-$popupMessage = "Calibration Instructions:`n`n- Use the red line to align your monitors.`n- Drag the red line up or down using your mouse.`n- Click the ✔ button when you're satisfied with the alignment.`n- Press ESC at any time to cancel calibration."
+$popupMessage = "Calibration Instructions:`n`n- Use the red line to align your monitors.`n- Drag the red line along the highlighted axis.`n- Click any green Apply button to confirm all monitors at once.`n- Press ESC at any time to cancel calibration."
 [System.Windows.Forms.MessageBox]::Show($popupMessage, "Calibration Instructions", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
 
 # Global arrays for results and forms, plus a flag for cancellation.
@@ -13,8 +13,32 @@ $global:MonitorResults = @()
 $global:CalibForms = @()
 $global:CalibrationCanceled = $false
 
+# Determine monitor arrangement to decide whether we align vertically or horizontally.
+$screens = [System.Windows.Forms.Screen]::AllScreens
+if ($screens.Count -eq 0) {
+    Write-Host "No monitors detected. Exiting." -ForegroundColor Red
+    exit
+}
+
+$minLeft = ($screens | ForEach-Object { $_.Bounds.X } | Measure-Object -Minimum).Minimum
+$maxRight = ($screens | ForEach-Object { $_.Bounds.X + $_.Bounds.Width } | Measure-Object -Maximum).Maximum
+$minTop = ($screens | ForEach-Object { $_.Bounds.Y } | Measure-Object -Minimum).Minimum
+$maxBottom = ($screens | ForEach-Object { $_.Bounds.Y + $_.Bounds.Height } | Measure-Object -Maximum).Maximum
+$widthSpan = $maxRight - $minLeft
+$heightSpan = $maxBottom - $minTop
+
+$global:CalibrationAxis = if (($screens.Count -eq 1) -or ($widthSpan -ge $heightSpan)) { 'Y' } else { 'X' }
+if ($global:CalibrationAxis -eq 'Y') {
+    Write-Host "Detected side-by-side monitors; using horizontal calibration lines."
+} else {
+    Write-Host "Detected vertically stacked monitors; using vertical calibration lines."
+}
+
+$lineThickness = 10
+$hitTolerance = 12
+
 # For each screen, open a borderless form that covers it.
-foreach ($screen in [System.Windows.Forms.Screen]::AllScreens) {
+foreach ($screen in $screens) {
 
     $form = New-Object System.Windows.Forms.Form
     $form.FormBorderStyle = 'None'
@@ -39,34 +63,55 @@ foreach ($screen in [System.Windows.Forms.Screen]::AllScreens) {
     })
 
     # Start with the red line at mid-screen.
-    $initialLineY = [math]::Round($form.Height / 2)
+    $initialLine = if ($global:CalibrationAxis -eq 'Y') {
+        [math]::Round($form.Height / 2)
+    } else {
+        [math]::Round($form.Width / 2)
+    }
     $form.Tag = [ordered]@{
-        Screen   = $screen
-        LineY    = $initialLineY
-        Dragging = $false
-        Offset   = 0
+        Screen     = $screen
+        LineValue  = $initialLine
+        Dragging   = $false
+        Offset     = 0
     }
 
-    # Paint event: Draw a semi-transparent, 5-px thick red line.
+    # Paint event: Draw a semi-transparent, thicker red line, horizontal or vertical.
     $form.Add_Paint({
         param($sender, $e)
-        $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(200,255,0,0), 5)
-        $lineY = $sender.Tag.LineY
-        $e.Graphics.DrawLine($pen, 0, $lineY, $sender.Width, $lineY)
+        $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(220,255,0,0), $lineThickness)
+        $lineValue = $sender.Tag.LineValue
+        if ($global:CalibrationAxis -eq 'Y') {
+            $e.Graphics.DrawLine($pen, 0, $lineValue, $sender.Width, $lineValue)
+        } else {
+            $e.Graphics.DrawLine($pen, $lineValue, 0, $lineValue, $sender.Height)
+        }
     })
 
-    # Allow dragging the line.
+    # Allow dragging the line along the detected axis.
     $form.Add_MouseDown({
         param($sender, $e)
-        if ([math]::Abs($e.Y - $sender.Tag.LineY) -le 5) {
-            $sender.Tag.Dragging = $true
-            $sender.Tag.Offset = $e.Y - $sender.Tag.LineY
+        if ($global:CalibrationAxis -eq 'Y') {
+            if ([math]::Abs($e.Y - $sender.Tag.LineValue) -le $hitTolerance) {
+                $sender.Tag.Dragging = $true
+                $sender.Tag.Offset = $e.Y - $sender.Tag.LineValue
+            }
+        } else {
+            if ([math]::Abs($e.X - $sender.Tag.LineValue) -le $hitTolerance) {
+                $sender.Tag.Dragging = $true
+                $sender.Tag.Offset = $e.X - $sender.Tag.LineValue
+            }
         }
     })
     $form.Add_MouseMove({
         param($sender, $e)
         if ($sender.Tag.Dragging) {
-            $sender.Tag.LineY = $e.Y - $sender.Tag.Offset
+            if ($global:CalibrationAxis -eq 'Y') {
+                $newLine = $e.Y - $sender.Tag.Offset
+                $sender.Tag.LineValue = [math]::Max(0, [math]::Min($sender.Height, $newLine))
+            } else {
+                $newLine = $e.X - $sender.Tag.Offset
+                $sender.Tag.LineValue = [math]::Max(0, [math]::Min($sender.Width, $newLine))
+            }
             $sender.Invalidate()
         }
     })
@@ -75,22 +120,31 @@ foreach ($screen in [System.Windows.Forms.Screen]::AllScreens) {
         $sender.Tag.Dragging = $false
     })
 
-    # "Done" button with a tick (✔); its click records this screen's calibration.
+    # Prominent "Apply All" button that finalizes all monitors simultaneously.
     $button = New-Object System.Windows.Forms.Button
-    $button.Text = "✔"
-    $button.Width = 60
-    $button.Height = 30
+    $button.Text = "Apply All"
+    $button.Width = 160
+    $button.Height = 60
+    $button.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
     $button.Location = New-Object System.Drawing.Point(10,10)
-    $button.BackColor = [System.Drawing.Color]::White
-    $button.ForeColor = [System.Drawing.Color]::Black
+    $button.BackColor = [System.Drawing.Color]::FromArgb(255, 46, 204, 113)
+    $button.ForeColor = [System.Drawing.Color]::White
+    $button.FlatStyle = 'Popup'
     $button.Add_Click({
         param($sender, $e)
-        $frm = $sender.FindForm()
-        $global:MonitorResults += [PSCustomObject]@{
-            Screen = $frm.Tag.Screen
-            LineY  = $frm.Tag.LineY
+        if ($global:MonitorResults.Count -gt 0) { return }
+        $global:MonitorResults = @()
+        foreach ($frm in $global:CalibForms) {
+            if ($null -ne $frm -and -not $frm.IsDisposed) {
+                $global:MonitorResults += [PSCustomObject]@{
+                    Screen    = $frm.Tag.Screen
+                    LineValue = $frm.Tag.LineValue
+                }
+                if ($frm.Visible) {
+                    $frm.Close()
+                }
+            }
         }
-        $frm.Close()
     })
     $form.Controls.Add($button)
 
@@ -109,43 +163,68 @@ if ($global:CalibrationCanceled) {
     exit
 }
 
-# --- Part 2: Compute new vertical positions using the primary monitor as reference ---
-# Use the primary monitor's red line absolute Y as the desired alignment.
+if ($global:MonitorResults.Count -eq 0) {
+    Write-Host "No calibration data was captured. Exiting." -ForegroundColor Yellow
+    exit
+}
+
+# --- Part 2: Compute new positions along the detected calibration axis ---
+# Use the primary monitor's red line absolute value as the desired alignment.
 $primaryResult = $global:MonitorResults | Where-Object { $_.Screen.Primary } | Select-Object -First 1
+$useYAxis = $global:CalibrationAxis -eq 'Y'
 if ($primaryResult) {
-    $desiredAbsolute = $primaryResult.Screen.Bounds.Y + $primaryResult.LineY
+    $desiredAbsolute = if ($useYAxis) {
+        $primaryResult.Screen.Bounds.Y + $primaryResult.LineValue
+    } else {
+        $primaryResult.Screen.Bounds.X + $primaryResult.LineValue
+    }
     Write-Host "Primary monitor detected; using its red line position ($desiredAbsolute) as reference."
 } else {
     # Fallback: use the median of all absolute positions.
-    $absPositions = $global:MonitorResults | ForEach-Object { $_.Screen.Bounds.Y + $_.LineY }
+    $absPositions = $global:MonitorResults | ForEach-Object {
+        if ($useYAxis) {
+            $_.Screen.Bounds.Y + $_.LineValue
+        } else {
+            $_.Screen.Bounds.X + $_.LineValue
+        }
+    }
     $sorted = $absPositions | Sort-Object
     $medianIndex = [math]::Floor($sorted.Count / 2)
     $desiredAbsolute = $sorted[$medianIndex]
     Write-Host "No primary monitor flagged; using median red line position ($desiredAbsolute) as reference."
 }
 
-# Calculate adjustments: primary monitor remains unchanged; for others, adjust Y so that (screen.Top + localLine) = desired.
+# Calculate adjustments: primary monitor remains unchanged; for others, adjust so absolute line matches desired.
 $global:DisplayAdjustments = @()
 foreach ($result in $global:MonitorResults) {
-    $currentTop = $result.Screen.Bounds.Y
-    $localLineY = $result.LineY
-    if ($result.Screen.Primary) {
-        $newTop = $currentTop  # Keep primary monitor unchanged.
+    if ($useYAxis) {
+        $currentBase = $result.Screen.Bounds.Y
     } else {
-        $newTop = $desiredAbsolute - $localLineY
+        $currentBase = $result.Screen.Bounds.X
     }
-    $delta = $newTop - $currentTop
+    $localLine = $result.LineValue
+    if ($result.Screen.Primary) {
+        $newBase = $currentBase  # Keep primary monitor unchanged.
+    } else {
+        $newBase = $desiredAbsolute - $localLine
+    }
+    $delta = $newBase - $currentBase
     $global:DisplayAdjustments += [PSCustomObject]@{
-        DeviceName = $result.Screen.DeviceName
-        OldTop     = $currentTop
-        NewTop     = $newTop
-        Delta      = $delta
-        Screen     = $result.Screen
+        DeviceName     = $result.Screen.DeviceName
+        OldCoordinate  = $currentBase
+        NewCoordinate  = $newBase
+        Delta          = $delta
+        Screen         = $result.Screen
+        Axis           = $global:CalibrationAxis
     }
-    Write-Host "For monitor $($result.Screen.DeviceName): Old top=$currentTop, local line=$localLineY, new top=$newTop (delta=$delta)"
+    if ($useYAxis) {
+        Write-Host "For monitor $($result.Screen.DeviceName): Old top=$currentBase, local line=$localLine, new top=$newBase (delta=$delta)"
+    } else {
+        Write-Host "For monitor $($result.Screen.DeviceName): Old left=$currentBase, local line=$localLine, new left=$newBase (delta=$delta)"
+    }
 }
 
-# --- Part 3: Update display configuration via Windows API (adjust only vertical positions) ---
+# --- Part 3: Update display configuration via Windows API (axis-aware offsets) ---
 # Compile a helper C# class. We update only DM_POSITION, leaving orientation fields untouched.
 $code = @"
 using System;
@@ -213,7 +292,6 @@ public class DisplayConfig {
         if (!EnumDisplaySettings(deviceName, ENUM_CURRENT_SETTINGS, ref dm))
             return false;
         dm.dmFields |= DM_POSITION;
-        // Update only dmPosition (vertical offset); preserve dmPosition.x by reusing newX.
         dm.dmPosition.x = newX;
         dm.dmPosition.y = newY;
         int result = ChangeDisplaySettingsEx(deviceName, ref dm, IntPtr.Zero, CDS_UPDATEREGISTRY | CDS_NORESET, IntPtr.Zero);
@@ -230,13 +308,18 @@ public class DisplayConfig {
 # Compile the helper.
 Add-Type -TypeDefinition $code -PassThru | Out-Null
 
-# For each monitor adjustment, update its vertical position while preserving its current X.
+# For each monitor adjustment, update the relevant axis while preserving the untouched coordinate.
 foreach ($adj in $global:DisplayAdjustments) {
     $device = $adj.DeviceName
-    $currentX = $adj.Screen.Bounds.X
-    $newY = $adj.NewTop
-    Write-Host "Adjusting $device : setting position to ($currentX, $newY)..."
-    $ok = [DisplayConfig]::SetDisplayPosition($device, $currentX, $newY)
+    if ($adj.Axis -eq 'Y') {
+        $newX = $adj.Screen.Bounds.X
+        $newY = $adj.NewCoordinate
+    } else {
+        $newX = $adj.NewCoordinate
+        $newY = $adj.Screen.Bounds.Y
+    }
+    Write-Host "Adjusting $device : setting position to ($newX, $newY)..."
+    $ok = [DisplayConfig]::SetDisplayPosition($device, $newX, $newY)
     if (-not $ok) {
         Write-Host "Failed to update position for $device" -ForegroundColor Red
     }
